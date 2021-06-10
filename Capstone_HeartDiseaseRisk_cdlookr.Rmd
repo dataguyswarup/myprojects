@@ -1,0 +1,1510 @@
+---
+title: "Capstone"
+author: "Swarup Kumar"
+date: "04/10/2019"
+output: html_document
+---
+
+#Loading libraries (1)
+```{r message=FALSE}
+#Loading the EDA libraries
+library(tools)
+library(dplyr)
+library(tidyverse)
+library(Hmisc)
+library(xlsx)
+library(ggplot2)
+library(gridExtra)
+library(reshape2)
+library(tidyr)
+library(psych)
+library(caret)
+library(readr)
+library(car)
+library(purrr)
+library(data.table)
+library(fastDummies)
+#Loading data imputation libraries
+library(mice)
+library(VIM)
+library(outliers)
+library(DMwR)
+#Loading the modelling libraries
+library(e1071)
+library(ipred)
+library(RWeka)
+library(rpart)
+library(rpart.plot)
+library(InformationValue)
+library(class)
+library(MLmetrics)
+library(randomForest)
+library(party)
+library(dlookr)
+library(rpart)
+library(rattle)
+library(DescTools)
+library(lmtest)
+library(xgboost)
+library(Matrix)
+library(DiagrammeR)
+library(partykit)
+library(MLeval)
+library(doSNOW)
+library(parallel)
+```
+
+#File loading and basic exploration(2)
+
+```{r}
+fName <- "C:/BigData/BABI/Capstone/Coronory Heart Risk Study/Coronary_heart_risk_study.csv"
+
+loaddata <- function(fileName,sheetName1)
+{
+  if (file_ext(fName) == "csv")
+  {
+    data <- read.csv(fName, header = TRUE,na.strings=c("", "NA"))
+  }
+  else if (file_ext(fName) == "txt")
+  {
+    data <- read.csv2(fName)
+  }
+  else if (file_ext(fName) == "xlsx")
+  {
+    data <- read.xlsx(fName,sheetName = sheetName1,as.data.frame = TRUE, header = TRUE)
+  }
+  return (data)
+}
+
+data <- loaddata(fName,"")
+
+data<-dplyr::rename(data,"prevStroke"="prevalentStroke")
+data<-dplyr::rename(data,"prevHyp"="prevalentHyp")
+data<-dplyr::rename(data,"curSmoker"="currentSmoker")
+
+
+data %>%
+  summarise_all(funs(sum(is.na(.)))) %>%
+  gather %>%
+  ggplot(aes(x = reorder(key, value), y = value)) + geom_bar(stat = "identity",fill="steelblue",color="steelblue") +
+  coord_flip() +
+  xlab("Variables") +
+  ylab("Initial absolute number of missings")
+data %>% 
+  select_if(is.numeric) %>% names
+data %>% 
+  select_if(is.numeric) %>% 
+  gather %>% 
+  ggplot(aes(x = value)) + facet_wrap(~ key, scales = "free", nrow = 3) +
+  geom_histogram()
+data %>% 
+  select_if(is.numeric) %>% 
+  cor
+data %>% 
+  select_if(is.numeric) %>% 
+  gather %>% 
+  ggplot(aes(x = 1, y = value)) + facet_wrap(~ key, scales = "free") + 
+  geom_boxplot(color="steelblue") +
+  ylab("Value") +
+  xlab("Variable")
+
+data %>%
+  #select_if(negate(is.numeric)) %>%
+  #select(-matches("essay")) %>%
+  gather %>%
+  ggplot(aes(x = value)) + geom_bar(fill="steelblue",color="steelblue") +
+  facet_wrap(~ key, scales = "free", ncol = 3)
+
+data %>% 
+  select_if(is.numeric) %>% 
+  map(summary) 
+
+#missingFrame <- apply(is.na(data), 2, which)
+
+#missingFrame$glucose
+#which(complete.cases(data) == FALSE)
+
+sum(is.na(data))
+
+data %>% 
+  select_if(is.numeric) %>% 
+  cor.plot(numbers = TRUE, main="Correlation Plot of CHD Dataset",diag=FALSE)
+     
+KMO(data)
+
+prop.table(table(data$diabetes,data$TenYearCHD),1)*100
+prop.table(table(data$prevStroke,data$TenYearCHD),1)*100
+prop.table(table(data$prevHyp,data$TenYearCHD),1)*100
+prop.table(table(data$BPMeds,data$TenYearCHD),1)*100
+```
+
+#Exploratory data analysis
+```{r}
+data1 <- data
+
+data1$education <- as.character( 
+    factor( 
+      data1$education, 
+      levels = c("1", "2","3","4"), 
+      labels = c("1","2","3","4"))) 
+
+data1$male <- as.character( 
+    factor( 
+      data1$male, 
+      levels = c("0", "1"), 
+      labels = c("Female", "Male"))) 
+
+data1$TenYearCHD <- as.character( 
+    factor( 
+      data1$TenYearCHD, 
+      levels = c("0", "1"), 
+      labels = c("No", "Yes"))) 
+
+data1$BPMeds <- as.character( 
+    factor( 
+      data1$BPMeds, 
+      levels = c("0", "1"), 
+      labels = c("No", "Yes"))) 
+
+data1$prevStroke <- as.character( 
+    factor( 
+      data1$prevStroke, 
+      levels = c("0", "1"), 
+      labels = c("No", "Yes"))) 
+
+data1$prevHyp <- as.character( 
+    factor( 
+      data1$prevHyp, 
+      levels = c("0", "1"), 
+      labels = c("No", "Yes"))) 
+
+data1$diabetes <- as.character( 
+    factor( 
+      data1$diabetes, 
+      levels = c("0", "1"), 
+      labels = c("No", "Yes"))) 
+
+data1$curSmoker <- as.character( 
+    factor( 
+      data1$curSmoker, 
+      levels = c("0", "1"), 
+      labels = c("No", "Yes"))) 
+
+cutage <- cut(data1$age,breaks=c(30,40,50,60,70,Inf),labels=c("30-40","40-50","50-60","60-70","55to65"))
+
+#Age distribution among M/F employees
+ggplot(data1)+geom_bar(aes(x=cutage,fill=as.factor(male)))+theme_bw()+scale_fill_discrete(name="Gender")+
+  labs(
+        x = "Age",
+        title = paste(
+            "Male/Female among Age groups"
+        ))
+
+educationFilter <- filter(data1,education %in% c("1","2","3","4"))
+cutageedu <- cut(educationFilter$age,breaks=c(30,40,50,60,70,Inf),labels=c("30-40","40-50","50-60","60-70","55to65"))
+
+#Education among age groups
+ggplot(educationFilter)+geom_bar(aes(x=cutageedu,fill=as.factor(education)))+theme_bw()+scale_fill_discrete(name="Education")+
+  labs(
+        x = "Age",
+        title = paste(
+            "Education among age groups"
+        ))
+
+#Gender distribution vs Coronary heart disease
+ggplot(data1)+geom_bar(aes(x=TenYearCHD,fill=as.factor(male)))+scale_fill_discrete(name="Gender")+theme_bw()+labs(
+        x = "CHD Suspect",
+        #y = "Male Vs Female",
+        title = paste(
+            "Gender distribution among CHD Suspects"
+        )) 
+
+#Age wise CHD suspects
+ggplot(data1)+geom_bar(aes(x=cutage,fill=as.factor(TenYearCHD)))+theme_bw()+scale_fill_discrete(name="CHD Suspect")+
+  labs(
+        x = "Age",
+        title = paste(
+            "Agewise CHD Suspects "
+        ))
+
+#Genderwise Smokers
+p1 <- ggplot(data1)+geom_bar(aes(x=male,fill=as.factor(curSmoker)))+theme_bw()+scale_fill_discrete(name="Smokers")+scale_x_discrete(name="Gender")+labs(title = "Genderwise Smokers")
+
+#Age wise Smokers  
+p2<-ggplot(data1)+geom_bar(aes(x=cutage,fill=as.factor(curSmoker)))+theme_bw()+scale_fill_discrete(name="Smokers")+
+  labs(
+        x = "Age",
+        title = paste(
+            "Smokers among Age group "
+        ))
+grid.arrange(p1,p2)
+
+#Diabetes among age group
+p3<-ggplot(data1)+geom_bar(aes(x=cutage,fill=as.factor(diabetes)))+theme_bw()+scale_fill_discrete(name="Diabetes")+
+  labs(
+        x = "Age",
+        title = paste(
+            "Diabetes among age group "
+        ))
+#Prevalent Stroke among age group
+p4<-ggplot(data1)+geom_bar(aes(x=cutage,fill=as.factor(prevStroke)))+theme_bw()+scale_fill_discrete(name="Stroke")+
+  labs(
+        x = "Age",
+        title = paste(
+            "Stroke among age group "
+        ))
+
+#Prevalent stroke among Smokers  
+p5<-ggplot(data1)+geom_bar(aes(x=diabetes,fill=as.factor(curSmoker)))+theme_bw()+scale_fill_discrete(name="Smokers")+
+  labs(
+        x = "Diabetes",
+        title = paste(
+            "Diabetes among Smokers"
+        ))
+
+#Diabetes among Smokers  
+p6<-ggplot(data1)+geom_bar(aes(x=prevStroke,fill=as.factor(curSmoker)))+theme_bw()+scale_fill_discrete(name="Smokers")+labs(x = "Prevalent Stroke",title = paste("Stroke among Smokers"))
+
+grid.arrange(p3,p5,p4,p6,ncol=2, nrow=2)
+
+bpmedfilter <- filter(data1,BPMeds %in% c("Yes","No"))
+
+cutagebp <- cut(bpmedfilter$age,breaks=c(30,40,50,60,70,Inf),labels=c("30-40","40-50","50-60","60-70","55to65"))
+
+#BP Medication among age group
+ggplot(bpmedfilter)+geom_bar(aes(x=cutagebp,fill=as.factor(BPMeds)))+theme_bw()+scale_fill_discrete(name="BP Medication")+
+  labs(
+        x = "Age",
+        title = paste(
+            "BP Medication among age group "
+        ))
+
+#Diabetes among age group
+ggplot(data1)+geom_bar(aes(x=cutage,fill=as.factor(diabetes)))+theme_bw()+scale_fill_discrete(name="Diabetes")+
+  labs(
+        x = "Age",
+        title = paste(
+            "Diabetes among age group "
+        ))
+#Education among age group
+ggplot(data1)+geom_bar(aes(x=cutage,fill=as.factor(education)))+theme_bw()+scale_fill_discrete(name="Education")+
+  labs(
+        x = "Age",
+        title = paste(
+            "Education among age group "
+        ))
+
+cholFilter <- filter(data1,totChol %in% (1:800))
+
+cutChol <- cut(cholFilter$totChol,breaks=c(100,200,300,400,500,600,700),labels=c("0-100","100-200","200-300","300-400","500-600",">600"))
+
+#Cholestoral among CHD Suspects 
+ggplot(cholFilter)+geom_bar(aes(x=cutChol,fill=as.factor(TenYearCHD)))+theme_bw()+
+  scale_fill_discrete(name="CHD Suspects")+
+  labs(
+        #y = "Age",
+        x= "Tot Cholestoral",
+        title = paste("Cholestoral Vs CHD Suspects"))
+
+#Glucose vs sysBP
+ggplot(data1, aes(x=glucose, y=sysBP,color=male)) +geom_point(shape=18) + geom_smooth(method=lm,fullrange=TRUE,se=FALSE)+geom_density2d()+stat_density_2d(aes(fill = ..level..), geom="polygon")
+#+geom_text(label=rownames(data))
+
+# Glucose vs diaBP
+ggplot(data1, aes(x=glucose, y=diaBP,color=male)) +geom_point(shape=18) + geom_smooth(method=lm,fullrange=TRUE,se=FALSE)
+
+#Age vs Tot Chol
+cutagechol <- cut(cholFilter$age,breaks=c(30,40,50,60,70,Inf),labels=c("30-40","40-50","50-60","60-70","55to65"))
+ggplot(cholFilter, aes(x=age, y=totChol,color=male)) +geom_point(shape=18) + geom_smooth(method=lm,fullrange=TRUE,se=FALSE)#+stat_ellipse(type = "norm")
+
+#Heartrate vs Total Cholestoral
+ggplot(cholFilter, aes(x=heartRate, y=totChol)) +geom_point(shape=18, color="steelblue") + geom_smooth(method=lm,fullrange=TRUE,se=FALSE)+stat_ellipse(type = "norm")
+
+#Systolic BP vs CHD Suspect
+ggplot(data1, aes(glucose, fill=TenYearCHD)) + geom_density(alpha=.5) + 
+  scale_fill_manual(values = c('#999999','#E69F00')) + theme(legend.position = "right")+scale_fill_discrete(name="CHD Suspects")
+
+#Diastolic BP vs CHD suspect
+ggplot(data1, aes(totChol, fill=TenYearCHD)) + geom_density(alpha=.5) + 
+  scale_fill_manual(values = c('#999999','#E69F00')) + theme(legend.position = "right")+scale_fill_discrete(name="CHD Suspects")
+
+#Cholestoral among CHD Suspects 
+ggplot(cholFilter)+geom_bar(aes(x=cutagechol,fill=as.factor(cutChol)))+theme_bw()+
+  scale_fill_discrete(name="Cholestoral")+
+  labs(
+        #y = "Age",
+        x= "Age",
+        title = paste("Age Vs Cholestoral"))
+
+#Area plot for Total Cholestoral against Gender
+ggplot(data1,aes(x=totChol))+geom_area(aes(fill = male),stat ="bin", alpha=0.6) +
+  theme_classic()+labs(title="Total Cholestoral among Gender")+scale_fill_discrete(name="Gender")
+
+#Density plot of Tot cholestoral among Gender
+ggplot(data1,aes(x=totChol))+geom_density(aes(color = male)) +
+  geom_vline(data=data1, aes(xintercept=mean(totChol), color=male),
+             linetype="dashed") +
+  scale_color_manual(values=c("#E69F00", "steelblue"))+scale_fill_discrete(name="Gender")
+
+#Density plot of Glucose among Gender
+ggplot(data1,aes(x=glucose))+geom_density(aes(color = male)) +
+geom_vline(data=data1, aes(xintercept=mean(glucose), color=male),
+linetype="dashed") +scale_color_manual(values=c("#E69F00", "steelblue"))+
+scale_fill_discrete(name="Gender")
+
+ggplot(data1,aes(x=glucose))+geom_dotplot(aes(fill=TenYearCHD))+scale_fill_discrete(name="CHD Suspect")
+
+ggplot(data1,aes(x=diaBP))+stat_bin(bindwidth=15)+geom_dotplot(aes(fill=(TenYearCHD="Yes")))+scale_fill_discrete(name="CHD Suspect")
+
+ggplot(educationFilter,aes(x=glucose))+stat_bin(bindwidth=15)+geom_dotplot(aes(fill=education))
+
+ggplot(educationFilter,aes(x=totChol))+stat_bin(bindwidth=15)+geom_dotplot(aes(fill=education))
+
+```
+
+(3)
+#Treating for outliers (5%-95%) capping and mice imputation of NAs
+```{r}
+# pcap <- function(x){
+#   for (i in which(sapply(x, is.numeric))) {
+#   quantiles <- quantile( x[,i], c(.05, .95 ), na.rm =TRUE)
+#   x[,i] = ifelse(x[,i] < quantiles[1] , quantiles[1], x[,i])
+#   x[,i] = ifelse(x[,i] > quantiles[2] , quantiles[2], x[,i])}
+#   x}
+# datacap <- data
+# datacap$male <- as.factor(datacap$male)
+# datacap$education <- as.factor(datacap$education)
+# datacap$curSmoker <- as.factor(datacap$curSmoker)
+# datacap$prevStroke <- as.factor(datacap$prevStroke)
+# datacap$prevHyp <- as.factor(datacap$prevHyp)
+# datacap$diabetes <- as.factor(datacap$diabetes)
+# datacap$BPMeds <- as.factor(datacap$BPMeds)
+# datacap$TenYearCHD <- as.factor(datacap$TenYearCHD)
+# 
+# 
+# abcd <- pcap(datacap)
+# 
+# quantile(abcd[,15], c(0.25,0.5,.95, .99, 1), na.rm = TRUE)
+# 
+# #abcd$TenYearCHD <- as.factor(abcd$TenYearCHD)
+# 
+# miceModab <- mice(abcd[,!names(abcd) %in% 'TenYearCHD'],seed = 500,maxit = 20,printFlag = FALSE)
+# miceOutputab <- complete(miceModab)
+# anyNA(miceOutputab)
+# 
+# miceOutputab1 <- cbind(miceOutputab,data$TenYearCHD)
+# miceOutputab1 <- dplyr::rename(miceOutputab1,"TenYearCHD"="data$TenYearCHD")
+# 
+# miceOutputab1$TenYearCHD <- as.factor(miceOutputab1$TenYearCHD)
+# 
+# dfCHDModel1 <- miceOutputab1
+# 
+# densityplot(miceModab)
+
+```
+(4)
+#Using dlookr package for Outlier treatment + imputing NAs
+```{r}
+
+data2 <- data
+
+data2$male <- as.factor(data2$male)
+data2$prevStroke <- as.factor(data2$prevStroke)
+data2$prevHyp <- as.factor(data2$prevHyp)
+data2$education <- as.factor(data2$education)
+data2$BPMeds <- as.factor(data2$BPMeds)
+data2$diabetes <- as.factor(data2$diabetes)
+data2$curSmoker <- as.factor(data2$curSmoker)
+data2$TenYearCHD <- as.factor(data2$TenYearCHD)
+
+starttime <- Sys.time()
+######Glucose#########################################
+glucose1 <- imputate_outlier(data2,glucose,method ="capping")
+
+summary(glucose1)
+
+plot(glucose1,main="Glucose capping")
+
+data2 <- cbind(data2,glucose1)
+
+data2$glucose1 <- as.numeric(data2$glucose1)
+
+data2 <- data2[,c(-15)]
+
+
+glucose2 <- imputate_na(data2,glucose1,method = "mice",print_flag = FALSE)
+
+summary(glucose2)
+
+plot(glucose2,main="Glucose imputation")
+
+data2 <- cbind(data2,glucose2)
+
+data2$glucose2 <- as.numeric(data2$glucose2)
+
+data2 <- data2[,c(-16)]
+
+
+data2<-dplyr::rename(data2,"glucose"="glucose2")
+
+###################Education#############################################
+
+data2$education <- as.factor(data2$education)
+
+education1 <- imputate_na(data2,education,method = "mice",seed = 100, print_flag = FALSE)
+
+summary(education1)
+
+plot(education1,main="Education imputation")
+
+data2 <- cbind(data2,education1)
+
+data2$education1 <- as.factor(data2$education1)
+
+data2 <- data2[,c(-3)]
+
+
+data2<-dplyr::rename(data2,"education"="education1")
+#######################BMI########################################
+bmi1 <- imputate_outlier(data2,BMI,method ="capping")
+
+summary(bmi1)
+
+plot(bmi1,main="BMI Capping")
+
+data2 <- cbind(data2,bmi1)
+
+data2$bmi1 <- as.numeric(data2$bmi1)
+
+data2 <- data2[,c(-12)]
+
+
+bmi2 <- imputate_na(data2,bmi1,method = "mice",seed=100,print_flag = FALSE)
+
+summary(bmi2)
+
+plot(bmi2, main="BMI imputation")
+
+data2 <- cbind(data2,bmi2)
+
+data2$bmi2 <- as.numeric(data2$bmi2)
+
+data2 <- data2[,c(-16)]
+
+
+data2<-dplyr::rename(data2,"BMI"="bmi2")
+boxplot(data2$BMI)
+
+#######################################
+
+sysBP1 <- imputate_outlier(data2,sysBP,method ="capping")
+
+summary(sysBP1)
+
+plot(sysBP1,main="sysBP capping")
+
+data2 <- cbind(data2,sysBP1)
+
+data2$sysBP1 <- as.numeric(data2$sysBP1)
+
+data2 <- data2[,c(-10)]
+
+
+sysBP2 <- imputate_na(data2,sysBP1,method = "mice",seed=100,print_flag = FALSE)
+
+summary(sysBP2)
+
+plot(sysBP2, main="sysBP Imputation")
+
+data2 <- cbind(data2,sysBP2)
+
+data2$sysBP2 <- as.numeric(data2$sysBP2)
+
+data2 <- data2[,c(-16)]
+
+
+data2<-dplyr::rename(data2,"sysBP"="sysBP2")
+boxplot(data2$sysBP)
+
+##################DiaBP#####################
+diaBP1 <- imputate_outlier(data2,diaBP,method ="capping")
+
+summary(diaBP1)
+
+plot(diaBP1,main="diaBP Capping")
+
+data2 <- cbind(data2,diaBP1)
+
+data2$diaBP1 <- as.numeric(data2$diaBP1)
+
+data2 <- data2[,c(-10)]
+
+
+diaBP2 <- imputate_na(data2,diaBP1,method = "mice",seed=100,print_flag = FALSE)
+
+summary(diaBP2)
+
+plot(diaBP2,main="diaBP Imputation")
+
+data2 <- cbind(data2,diaBP2)
+
+data2$diaBP2 <- as.numeric(data2$diaBP2)
+
+data2 <- data2[,c(-16)]
+
+
+data2<-dplyr::rename(data2,"diaBP"="diaBP2")
+
+boxplot(data2$diaBP)
+
+###################heartRate####################
+
+heartRate1 <- imputate_outlier(data2,heartRate,method ="capping")
+
+summary(heartRate1)
+
+plot(heartRate1,main="heartRate imputation")
+
+data2 <- cbind(data2,heartRate1)
+
+data2$heartRate1 <- as.numeric(data2$heartRate1)
+
+data2 <- data2[,c(-10)]
+
+
+heartRate2 <- imputate_na(data2,heartRate1,method = "mice",seed=100,print_flag = FALSE)
+
+summary(heartRate2)
+
+plot(heartRate2,main="heartrate Imputation")
+
+data2 <- cbind(data2,heartRate2)
+
+data2$heartRate2 <- as.numeric(data2$heartRate2)
+
+data2 <- data2[,c(-16)]
+
+
+data2<-dplyr::rename(data2,"heartRate"="heartRate2")
+
+boxplot(data2$heartRate)
+
+#############################################################
+###################cigsPerDay####################
+
+cigsPerDay1 <- imputate_outlier(data2,cigsPerDay,method ="capping")
+
+summary(cigsPerDay1)
+
+plot(cigsPerDay1,main="cigsperday capping")
+
+data2 <- cbind(data2,cigsPerDay1)
+
+data2$cigsPerDay1 <- as.numeric(data2$cigsPerDay1)
+
+data2 <- data2[,c(-4)]
+
+
+cigsPerDay2 <- imputate_na(data2,cigsPerDay1,method = "mice",seed=100,print_flag = FALSE)
+
+summary(cigsPerDay2)
+
+plot(cigsPerDay2,main="cigsperday Imputation")
+
+data2 <- cbind(data2,cigsPerDay2)
+
+data2$cigsPerDay2 <- as.numeric(data2$cigsPerDay2)
+
+data2 <- data2[,c(-16)]
+
+
+data2<-dplyr::rename(data2,"cigsPerDay"="cigsPerDay2")
+
+boxplot(data2$cigsPerDay)
+
+#############################################################
+
+###################tot Cholesterol####################
+
+totChol1 <- imputate_outlier(data2,totChol,method ="capping")
+
+summary(totChol1)
+
+plot(totChol1,main="cholesterol capping")
+
+data2 <- cbind(data2,totChol1)
+
+data2$totChol1 <- as.numeric(data2$totChol1)
+
+data2 <- data2[,c(-8)]
+
+
+totChol2 <- imputate_na(data2,totChol1,method = "mice",seed=100,print_flag = FALSE)
+
+summary(totChol2)
+
+plot(totChol2,main="cholesterol imputation")
+
+data2 <- cbind(data2,totChol2)
+
+data2$totChol2 <- as.numeric(data2$totChol2)
+
+data2 <- data2[,c(-16)]
+
+
+data2<-dplyr::rename(data2,"totChol"="totChol2")
+
+boxplot(data2$totChol)
+
+#############################################################
+
+
+
+###################BPMeds#############################################
+
+data2$BPMeds <- as.factor(data2$BPMeds)
+
+
+BPMeds1 <- imputate_na(data2,BPMeds,method = "mode",print_flag = FALSE)#seed = 100)
+
+summary(BPMeds1)
+
+plot(BPMeds1)
+
+data2 <- cbind(data2,BPMeds1)
+
+data2$BPMeds1 <- as.factor(data2$BPMeds1)
+
+data2 <- data2[,c(-4)]
+
+
+data2<-dplyr::rename(data2,"BPMeds"="BPMeds1")
+
+
+###############################################################
+
+#####Log transformation on dataset
+# find_skewness(data2,index = FALSE, value = TRUE)
+# 
+# #sysBP, cigsPerDay, glucose are > 0.3 (threshold), hence will be transformed
+# 
+# sysBPLog <- transform(data2$sysBP, method = "log")
+# 
+# summary(sysBPLog)
+# 
+# plot(sysBPLog)
+# 
+# cigsPerDayLog <- transform(data2$cigsPerDay, method = "log")
+# 
+# summary(cigsPerDayLog)
+# 
+# #We find -Inf values, hence do log+1
+# cigsPerDayLog <- transform(data2$cigsPerDay, method = "log+1")
+# 
+# summary(cigsPerDayLog)
+# 
+# plot(cigsPerDayLog)
+# 
+# glucoseLog <- transform(data2$glucose, method = "log")
+# 
+# summary(glucoseLog)
+# 
+# plot(glucoseLog)
+# 
+# sysBPLog <- as.numeric(sysBPLog)
+# cigsPerDayLog <- as.numeric(cigsPerDayLog)
+# glucoseLog <- as.numeric(glucoseLog)
+# 
+# endtime <- Sys.time()
+# 
+# print(endtime-starttime)
+#  
+# trandata2 <- cbind(data2,sysBPLog,glucoseLog,cigsPerDayLog)
+# 
+# find_skewness(trandata2,index = FALSE, value = TRUE)
+# # Since the skewness has reduced, we will now remove the original vars of glucose, cigsperday, sysBP
+# trandata2 <- trandata2[,c(-8,-11,-14)]
+
+data2 <- data2[,c(1:6,8:16,7)]
+
+write.csv(data2,file="C:/BigData/BABI/Capstone/data2.csv",col.names=TRUE)
+```
+(5)
+#Binning(6)
+
+```{r}
+binage <- cut(data2$age,breaks=c(30,40,50,60,70),labels=c("30t40","40t50","50t60","60t70"))
+summary(binage)
+plot(binage)
+
+newdata2 <- cbind(data2,binage)
+
+# newdata2 <- newdata2[,-2]
+
+
+
+#Ranges as defined by medical terms <18 - Underweight, 18-24.9 - Normal, 24.9-29.9-Overweight,>30 Obese)
+binBMI <- cut(data2$BMI,breaks=c(0,18.5,24.9,29.9,Inf),labels=c("Underweight","Normal","Overweight","Obese"))
+summary(binBMI)
+plot(binBMI)
+
+newdata2 <- cbind(newdata2,binBMI)
+
+newdata2$TenYearCHD <- as.factor(newdata2$TenYearCHD)
+
+newdata2 <- newdata2[,c(1:15,17:18,16)]
+# 
+# newdata2 <- newdata2[,-9]
+# newdata2 <- newdata2[,c(1:5,7:16,6)]
+
+#Binning for transformed dataset
+
+# binageT <- cut(trandata2$age,breaks=c(30,40,50,60,70),labels=c("30t40","40t50","50t60","60t70"))
+# summary(binageT)
+# plot(binageT)
+# 
+# trandata2 <- cbind(trandata2,binageT)
+# 
+# trandata2 <- trandata2[,-2]
+# 
+# 
+# 
+# binBMIT <- cut(trandata2$BMI,breaks=c(0,18.5,24.9,29.9,Inf),labels=c("Underweight","Normal","Overweight","Obese"))
+# summary(binBMIT)
+# plot(binBMIT)
+# 
+# trandata2 <- cbind(trandata2,binBMIT)
+# 
+# trandata2 <- trandata2[,-8]
+# trandata2 <- trandata2[,c(1:5,7:16,6)]
+
+#write.csv(newdata2,file="C:/BigData/BABI/Capstone/Coronory Heart Risk Study/newdata.csv",col.names = TRUE,row.names = TRUE)
+
+#write.csv(trandata2,file="C:/BigData/BABI/Capstone/Coronory Heart Risk Study/trandata2.csv",col.names = TRUE,row.names = TRUE)
+dmnewdata<- dummy_cols(newdata2, select_columns = c("male","prevStroke","education","diabetes","prevHyp","prevStroke","BPMeds","binage","binBMI"))
+
+dmnewdata<- dummy_cols(newdata2, select_columns = c("male","prevStroke","education","diabetes","prevHyp","prevStroke","BPMeds"))
+#dmnewdata <- dmnewdata[,c(-1,-2,-3,-4,-5,-7,-13,-15,-14)]
+#dmnewdata <- dmnewdata[,c(1:6,8:29,7)]
+
+dmnewdata <- dmnewdata[,c(-1,-3,-4,-5,-6,-8,-15)]
+dmnewdata <- dmnewdata[,c(1:8,10:23,9)]
+
+#dmnewdata1 <- dummy_cols(newdata2,select_columns = c("education","binage","binBMI"))
+#dmnewdata1 <- dmnewdata1[,c(-2,-7,-14,-15)]
+#dmnewdata1 <- dmnewdata1[,c(1:11,13:24,12)]
+
+```
+
+#Logistic Regression(11)
+```{r}
+set.seed(123)
+
+
+sample3 <- createDataPartition(newdata2$TenYearCHD,p=0.7,list = FALSE)
+
+trainLr <- newdata2[sample3, ]
+testLr  <- newdata2[-sample3,]
+
+
+
+logitmod3 <- glm(TenYearCHD ~ ., family = "binomial", data=trainLr)
+
+pred3L <- predict(logitmod3, newdata = testLr, type = "response")
+
+
+y_pred_num3<- ifelse(pred3L > 0.5, 1, 0)
+y_pred3 <- factor(y_pred_num3, levels=c(0, 1))
+y_act3 <- factor(testLr$TenYearCHD)
+
+caret::confusionMatrix(y_pred3,y_act3, positive="1", mode="everything")
+InformationValue::plotROC(y_act3,c(as.numeric(y_pred3)))
+
+
+summary(logitmod3)
+
+anova(logitmod3,test="Chisq")
+exp(coef(logitmod3))
+exp(coef(logitmod3))/(1+exp(coef(logitmod3)))
+PseudoR2(logitmod3,c("McFadden", "Nagel"))
+lrtest(logitmod3)
+
+```
+
+#NaiveBayes(12)
+```{r}
+set.seed(1234)
+
+samplen <- createDataPartition(newdata2$TenYearCHD,p=0.7,list = FALSE)
+
+trainNb <- newdata2[samplen, ]
+testNb  <- newdata2[-samplen,]
+
+#nbmod<-naiveBayes(x=trainN[,1:23], y=trainN[,24])
+nbmod<-naiveBayes(x=trainNb[,1:17], y=trainNb[,18])
+pred_nb<-predict(nbmod,newdata = testNb[,1:17])
+
+table(pred_nb,testNb[,18])
+
+caret::confusionMatrix(pred_nb,testNb$TenYearCHD,positive="1",mode="everything")
+InformationValue::plotROC(testNb$TenYearCHD,c(as.numeric(pred_nb)),Show.labels = T)
+
+pred_nb1<-predict(nbmod,newdata = trainNb[,1:17])
+caret::confusionMatrix(pred_nb1,trainNb$TenYearCHD,positive="1",mode="everything")
+
+```
+
+#SVM Classification(14)
+```{r}
+
+set.seed(123)
+
+
+sample3 <- createDataPartition(newdata2$TenYearCHD,p=0.7,list = FALSE)
+
+trainSv <- newdata2[sample3, ]
+testSv  <- newdata2[-sample3,]
+
+starttime <- Sys.time()
+svmModel3 <- e1071::svm(TenYearCHD~.,data = trainSv,kernel="polynomial",scale=FALSE,gamma=0.1,coef0=1)
+
+predsvm <- predict(svmModel3,newdata = testSv)
+endtime <- Sys.time()
+print(endtime-starttime)
+caret::confusionMatrix(predsvm,testSv$TenYearCHD,positive="1",mode="everything")
+
+####Tuning#####
+#tuned_param <- tune.svm(TenYearCHD~.,data=train2S,gamma = 10^(-5:-1), cost = 10^(-3:1))
+
+
+```
+
+
+#xgbTree from caret package (15)
+```{r}
+
+set.seed(101)
+
+#dmnewdata2 <- dummy_columns(newdata2,select_columns = c("education","BPMeds","prevStroke","prevHyp","diabetes","binageD","binBMID"))
+
+#dmnewdata2 <- dmnewdata2[,c(-3,-6,-7,-8,-9,-17,-18)]
+boostdata1 <- dmnewdata
+
+sample3 <- createDataPartition(boostdata1$TenYearCHD,p=0.7,list = FALSE)
+
+trainXG <- boostdata1[sample3, ]
+testXG  <- boostdata1[-sample3,]
+
+
+levels(trainXG$TenYearCHD) <- make.names(levels(trainXG$TenYearCHD))
+levels(testXG$TenYearCHD) <- make.names(levels(testXG$TenYearCHD))
+
+
+trnoutput_vector <- trainXG[,"TenYearCHD"]
+tesoutput_vector <- testXG[,"TenYearCHD"]
+
+xgb_trcontrol <- trainControl(
+  method = "repeatedcv",
+  number = 10, 
+  repeats = 3,
+  #allowParallel = TRUE,
+  verboseIter = FALSE,
+  #returnData = FALSE,
+  summaryFunction = twoClassSummary,
+  classProbs = TRUE,
+  savePredictions=TRUE,
+  sampling = "smote"
+)
+
+# xgbGrid <- expand.grid(nrounds = c(25,50,75),
+#                         max_depth = 4:7,
+#                          colsample_bytree = c(0.3,0.4,0.5),
+#                          eta = c(0.05,0.1,0.3),
+#                          gamma=0,
+#                          min_child_weight = c(2.0,2.25),
+#                          subsample = 1
+#                         )
+ xgbGrid <- expand.grid(nrounds = 50,
+                        max_depth = 4,
+                        colsample_bytree = 0.3,
+                        eta = 0.05,
+                        gamma=0,
+                        min_child_weight = 2,
+                        subsample = 1
+                       )
+#set.seed(0) 
+#reset.seed()
+#numberofcores = detectCores()  # review what number of cores does for your environment
+
+#cl <- makeCluster(numberofcores, type = "SOCK")
+# Register cluster so that caret will know to train in parallel.
+#registerDoSNOW(cl)
+
+starttime <- Sys.time()
+
+xgb_model <- caret::train(TenYearCHD~.,data=trainXG,trControl = xgb_trcontrol,tuneGrid = xgbGrid,method = "xgbTree",preProcess = c("center","scale"))
+
+#stopCluster(cl)
+
+predicted <- predict(xgb_model, testXG)
+
+endtime <- Sys.time()
+
+print(endtime-starttime)
+caret::confusionMatrix(predicted,tesoutput_vector, positive="X1",mode="everything")
+
+#xgb_model$finalModel
+#xgb.plot.tree(model = xgb_model)
+
+importanceC <- xgb.importance(feature_names = colnames(xgb_model$finalModel$feature_names), model = xgb_model$finalModel)
+
+xgb.ggplot.importance(importanceC)
+
+caret::varImp(xgb_model,useModel=TRUE,scale=FALSE)
+plot(caret::varImp(xgb_model,useModel=TRUE,scale=FALSE))
+#xgb.plot.multi.trees(feature_names = names(xgb_model$finalModel$feature_names),model = xgb_model$finalModel)
+
+#xgb.plot.tree(feature_names = xgb_model$finalModel$feature_names, model = xgb_model$finalModel)
+
+xgbres <- evalm(xgb_model)
+
+predicted1 <- predict(xgb_model, trainXG)
+
+caret::confusionMatrix(predicted1,trnoutput_vector, positive="X1",mode="everything")
+
+```
+
+#LogitBoost Caret(16)
+```{r}
+set.seed(108)
+sample2 <- createDataPartition(newdata2$TenYearCHD,p=0.7,list = FALSE)
+
+train2L <- newdata2[sample2, ]
+test2L  <- newdata2[-sample2,]
+
+levels(train2L$TenYearCHD) <- make.names(levels(train2L$TenYearCHD))
+levels(test2L$TenYearCHD) <- make.names(levels(test2L$TenYearCHD))
+
+repeats <- 5
+numbers <- 10
+tunel <- 10
+
+x <- trainControl(method = "repeatedcv",
+                 number = numbers,
+                 repeats = repeats,
+                 classProbs = TRUE,
+                 summaryFunction = twoClassSummary,
+                 sampling = "smote",
+                 verboseIter = FALSE,
+                 savePredictions = TRUE
+                 )
+starttime <- Sys.time()
+
+lmmodel <- caret::train(TenYearCHD~., data = train2L, method = "LogitBoost",
+               #preProcess = c("center","scale"),
+               trControl = x,
+               metric = "ROC",
+               tuneLength = tunel)
+# Summary of model
+
+lgbmpredict <- predict(lmmodel,newdata = test2L)
+
+endtime <- Sys.time()
+
+print(endtime-starttime)
+plot(lmmodel)
+
+plot(lmmodel, print.thres = 0.5, type="S")
+
+caret::varImp(lmmodel,scale=F)
+
+plot(caret::varImp(lmmodel,scale=F))
+caret::confusionMatrix(lgbmpredict,test2L$TenYearCHD, positive="X1",mode="everything")
+
+lgbmpredict1 <- predict(lmmodel,newdata = train2L)
+
+caret::confusionMatrix(lgbmpredict1,train2L$TenYearCHD, positive="X1",mode="everything")
+
+lres <- evalm(lmmodel)
+```
+
+#NB Caret(17)
+```{r}
+set.seed(108)
+sample2 <- createDataPartition(newdata2$TenYearCHD,p=0.7,list = FALSE)
+
+train2N <- newdata2[sample2, ]
+test2N  <- newdata2[-sample2,]
+
+levels(train2N$TenYearCHD) <- make.names(levels(train2N$TenYearCHD))
+levels(test2N$TenYearCHD) <- make.names(levels(test2N$TenYearCHD))
+
+repeats <- 3
+numbers <- 10
+tunel <- 10
+
+x <- trainControl(method = "repeatedcv",
+                 number = numbers,
+                 repeats = repeats,
+                 classProbs = TRUE,
+                 summaryFunction = twoClassSummary,
+                 sampling = "smote",
+                 verboseIter = FALSE,
+                 savePredictions = TRUE
+                 )
+starttime <- Sys.time()
+
+nbcmodel <- caret::train(TenYearCHD~., data = train2N, method = "naive_bayes",
+               #
+               trControl = x,
+               metric = "ROC",
+               tuneLength = tunel)
+# Summary of model
+
+nbcpredict <- predict(nbcmodel,newdata = test2N)
+
+endtime <- Sys.time()
+
+print(endtime-starttime)
+
+plot(nbcmodel, print.thres = 0.5, type="S")
+plot(nbcmodel)
+
+imp <- caret::varImp(nbcmodel,useModel=TRUE,scale=FALSE)
+
+plot(imp)
+
+caret::confusionMatrix(nbcpredict,test2N$TenYearCHD, positive="X1",mode="everything")
+
+res <- evalm(nbcmodel)
+
+nbovpredict <- predict(nbcmodel,train2N)
+
+caret::confusionMatrix(nbovpredict,train2N$TenYearCHD, positive="X1",mode="everything")
+```
+
+#Random Forest in caret(18)
+```{r}
+
+set.seed(108)
+sample2 <- createDataPartition(newdata2$TenYearCHD,p=0.7,list = FALSE)
+
+train2R <- newdata2[sample2, ]
+test2R  <- newdata2[-sample2,]
+
+levels(train2R$TenYearCHD) <- make.names(levels(train2R$TenYearCHD))
+levels(test2R$TenYearCHD) <- make.names(levels(test2R$TenYearCHD))
+
+repeats <- 3
+numbers <- 10
+tunel <- 10
+
+x <- trainControl(method = "repeatedcv",
+                 number = numbers,
+                 repeats = repeats,
+                 classProbs = TRUE,
+                 summaryFunction = twoClassSummary,
+                 sampling = "smote",
+                 verboseIter = FALSE,
+                 savePredictions = TRUE,
+                 search = "random"
+                 )
+starttime <- Sys.time()
+mtry <- sqrt(ncol(newdata2))
+tunegrid <- expand.grid(.mtry = mtry)
+rfmodel <- caret::train(TenYearCHD~., data = train2R, method = "rf",
+               #
+               trControl = x,
+               metric = "ROC",
+               tuneLength = tunel,tunegrid=tunegrid,ntree=15)
+# Summary of model
+
+rfpredict <- predict(rfmodel,newdata = test2R)
+
+endtime <- Sys.time()
+
+print(endtime-starttime)
+
+plot(rfmodel, print.thres = 0.5, type="S")
+
+plot(rfmodel)
+rfimp <- caret::varImp(rfmodel,useModel=TRUE,scale=FALSE)
+plot(rfimp)
+
+# Get the row names of the variable importance data
+rownames(rfimp$importance)
+# Convert the variable importance data into a dataframe
+importance <- data.frame(rownames(rfimp$importance), rfimp$importance$Overall)
+# Relabel the data
+names(importance)<-c('CHD', 'Importance')
+# Order the data from greatest importance to least important
+#importance <- transform(importance, CHD = reorder(CHD, Importance))
+# Plot the data with ggplot.
+ggplot(data=importance, aes(x=CHD, y=Importance)) +
+  geom_bar(stat = 'identity',colour = "blue", fill = "white") + coord_flip()
+#varImpPlot(rfmodel,n.var = min(10,nrow(rfmodel$importance)),scale = TRUE,main="Top 10 Variable of importance",sort=TRUE)
+# plot(rfmodel$finalModel)
+# legend("topright", c("OOB", "0", "1"), text.col=1:6, lty=1:3, col=1:3) 
+# title(main="Error Rates Random Forest for CHD")
+#tree_num <- rfmodel$finalModel$forest$ndbigtree
+caret::confusionMatrix(rfpredict,test2R$TenYearCHD, positive="X1",mode="everything")
+
+rfpredict1 <- predict(rfmodel,newdata = train2R)
+
+caret::confusionMatrix(rfpredict1,train2R$TenYearCHD, positive="X1",mode="everything")
+
+# tree_func <- function(final_model, 
+#                       tree_num) {
+#   
+#   # get tree by index
+#   tree <- randomForest::getTree(final_model, 
+#                                 k = tree_num, 
+#                                 labelVar = TRUE) %>%
+#     tibble::rownames_to_column() %>%
+#     # make leaf split points to NA, so the 0s won't get plotted
+#     mutate(`split point` = ifelse(is.na(prediction), `split point`, NA))
+#   
+#   # prepare data frame for graph
+#   graph_frame <- data.frame(from = rep(tree$rowname, 2),
+#                             to = c(tree$`left daughter`, tree$`right daughter`))
+#   
+#   # convert to graph and delete the last node that we don't want to plot
+#   graph <- graph_from_data_frame(graph_frame) %>%
+#     delete_vertices("0")
+#   
+#   # set node labels
+#   V(graph)$node_label <- gsub("_", " ", as.character(tree$`split var`))
+#   V(graph)$leaf_label <- as.character(tree$prediction)
+#   V(graph)$split <- as.character(round(tree$`split point`, digits = 2))
+#   
+#   # plot
+#   plot <- ggraph(graph, 'dendogram') + 
+#     theme_bw() +
+#     geom_edge_link() +
+#     geom_node_point() +
+#     geom_node_text(aes(label = node_label), na.rm = TRUE, repel = TRUE) +
+#     geom_node_label(aes(label = split), vjust = 2.5, na.rm = TRUE, fill = "white") +
+#     geom_node_label(aes(label = leaf_label, fill = leaf_label), na.rm = TRUE, 
+# 					repel = TRUE, colour = "white", fontface = "bold", show.legend = FALSE) +
+#     theme(panel.grid.minor = element_blank(),
+#           panel.grid.major = element_blank(),
+#           panel.background = element_blank(),
+#           plot.background = element_rect(fill = "white"),
+#           panel.border = element_blank(),
+#           axis.line = element_blank(),
+#           axis.text.x = element_blank(),
+#           axis.text.y = element_blank(),
+#           axis.ticks = element_blank(),
+#           axis.title.x = element_blank(),
+#           axis.title.y = element_blank(),
+#           plot.title = element_text(size = 18))
+#   
+#   print(plot)
+# }
+# tree_func(rfmodel$finalModel,tree_num)
+
+rfres <- evalm(rfmodel)
+```
+
+#CTREE(19)
+```{r}
+set.seed(108)
+sample2 <- createDataPartition(newdata2$TenYearCHD,p=0.7,list = FALSE)
+
+train2CT <- newdata2[sample2, ]
+test2CT  <- newdata2[-sample2,]
+
+levels(train2CT$TenYearCHD) <- make.names(levels(train2CT$TenYearCHD))
+levels(test2CT$TenYearCHD) <- make.names(levels(test2CT$TenYearCHD))
+
+repeats <- 3
+numbers <- 10
+tunel <- 10
+
+x <- trainControl(method = "repeatedcv",
+                 number = numbers,
+                 repeats = repeats,
+                 classProbs = TRUE,
+                 summaryFunction = twoClassSummary,
+                 sampling = "smote",
+                 verboseIter = FALSE,
+                 savePredictions = TRUE
+                 )
+starttime <- Sys.time()
+#mtry <- sqrt(ncol(newdata2))
+#tgrid <- expand.grid(.mtry = mtry)
+ctrmodel <- caret::train(TenYearCHD~., data = train2CT, method = "ctree",
+               #
+               trControl = x,
+               metric = "ROC",
+               tuneLength = tunel)
+               #tunegrid=tgrid,
+               #ntree=5)
+# Summary of model
+
+ctpredict <- predict(ctrmodel,newdata = test2CT)
+
+endtime <- Sys.time()
+
+print(endtime-starttime)
+
+plot(ctrmodel, print.thres = 0.5, type="S")
+
+imp <- caret::varImp(ctrmodel,useModel=TRUE,scale=FALSE)
+
+plot(imp)
+plot(ctrmodel$finalModel)
+
+#plot(as.simpleparty(ctrmodel$finalModel))
+caret::confusionMatrix(ctpredict,test2CT$TenYearCHD, positive="X1",mode="everything")
+
+ctpredict1 <- predict(ctrmodel,newdata = train2CT)
+
+caret::confusionMatrix(ctpredict1,train2CT$TenYearCHD, positive="X1",mode="everything")
+
+ctres <- evalm(ctrmodel)
+
+ctres$roc
+```
+
+#C45(20)
+```{r}
+set.seed(108)
+sample2 <- createDataPartition(newdata2$TenYearCHD,p=0.7,list = FALSE)
+
+train2C5 <- newdata2[sample2, ]
+test2C5  <- newdata2[-sample2,]
+
+levels(train2C5$TenYearCHD) <- make.names(levels(train2C5$TenYearCHD))
+levels(test2C5$TenYearCHD) <- make.names(levels(test2C5$TenYearCHD))
+
+repeats <- 3
+numbers <- 10
+tunel <- 10
+
+x <- trainControl(method = "repeatedcv",
+                 number = numbers,
+                 repeats = repeats,
+                 classProbs = TRUE,
+                 summaryFunction = twoClassSummary,
+                 sampling = "smote",
+                 verboseIter = FALSE,
+                 savePredictions = TRUE
+                 )
+starttime <- Sys.time()
+#mtry <- sqrt(ncol(newdata2))
+#tgrid <- expand.grid(maxdepth = 25)
+c5model <- caret::train(TenYearCHD~., data = train2C5, method = "rpart2",
+               #
+               trControl = x,
+               metric = "ROC",
+               tuneLength = tunel)
+               #tunegrid=tgrid)
+               #ntree=5)
+# Summary of model
+
+c5predict <- predict(c5model,newdata = test2C5)
+
+endtime <- Sys.time()
+
+print(endtime-starttime)
+
+#plot(c5model, print.thres = 0.5, type="S")
+
+imp <- caret::varImp(c5model,useModel=TRUE,scale=FALSE)
+
+plot(imp)
+
+fancyRpartPlot(c5model$finalModel,palettes=c("Blues","Oranges"))
+
+
+caret::confusionMatrix(c5predict,test2C5$TenYearCHD, positive="X1",mode="everything")
+
+c5predict1 <- predict(c5model,newdata = train2C5)
+
+caret::confusionMatrix(c5predict1,train2C5$TenYearCHD, positive="X1",mode="everything")
+
+c45res <- evalm(c5model)
+```
+
+#KNN(21)
+```{r}
+
+set.seed(101)
+
+sample3 <- createDataPartition(newdata2$TenYearCHD,p=0.7,list = FALSE)
+
+trainKS <- newdata2[sample3, ]
+testKS  <- newdata2[-sample3,]
+
+
+# Setting levels for both training and validation data
+levels(trainKS$TenYearCHD) <- make.names(levels(trainKS$TenYearCHD))
+levels(testKS$TenYearCHD) <- make.names(levels(testKS$TenYearCHD))
+
+
+repeats <- 3
+numbers <- 10
+tunel <- 10
+
+x <- trainControl(method = "repeatedcv",
+                 number = numbers,
+                 repeats = repeats,
+                 classProbs = TRUE,
+                 summaryFunction = twoClassSummary,
+                 sampling = "smote",
+                 verboseIter = FALSE,
+                 savePredictions = TRUE
+                 )
+starttime <- Sys.time()
+modelK2 <- caret::train(TenYearCHD~., data = trainKS, method = "knn",
+               preProcess = c("center","scale"),
+               trControl = x,
+               metric = "ROC",
+               tuneLength = tunel)
+
+# Summary of model
+
+knnpredict <- predict(modelK2,newdata = testKS)
+
+endtime <- Sys.time()
+
+print(endtime-starttime)
+#plot(modelK2)
+
+plot(modelK2, print.thres = 0.5, type="S")
+
+knnImp <- caret::varImp(modelK2,useModel=TRUE,scale=FALSE)
+
+
+plot(knnImp)
+caret::confusionMatrix(knnpredict,testKS$TenYearCHD, positive="X1",mode="everything")
+
+knnpredict1 <- predict(modelK2,trainKS)
+caret::confusionMatrix(knnpredict1,trainKS$TenYearCHD, positive="X1",mode="everything")
+knres <- evalm(modelK2)
+
+```
+
+#GBM(22)
+```{r}
+set.seed(101)
+
+
+sample2 <- createDataPartition(newdata2$TenYearCHD,p=0.7,list = FALSE)
+
+train2GB <- newdata2[sample2, ]
+test2GB  <- newdata2[-sample2,]
+
+# Setting levels for both training and validation data
+levels(train2GB$TenYearCHD) <- make.names(levels(train2GB$TenYearCHD))
+levels(test2GB$TenYearCHD) <- make.names(levels(test2GB$TenYearCHD))
+
+#repeats <- 3
+numbers <- 10
+tunel <- 10
+
+x <- trainControl(method = "cv",
+                 number = numbers,
+                 #repeats = repeats,
+                 classProbs = TRUE,
+                 summaryFunction = twoClassSummary,
+                 sampling = "smote",
+                 verboseIter = TRUE
+                 #savePredictions = TRUE
+                 )
+starttime <- Sys.time()
+gbmodel <- caret::train(TenYearCHD~., data = train2GB, method = "gbm",
+               preProcess = c("center","scale"),
+               trControl = x,
+               metric = "ROC",
+               tuneLength = tunel)
+
+# Summary of model
+
+gbmpredict <- predict(gbmodel,newdata = test2GB)
+
+endtime <- Sys.time()
+
+print(endtime-starttime)
+#plot(model2)
+
+plot(gbmodel, print.thres = 0.5, type="S")
+
+caret::confusionMatrix(gbmpredict,test2GB$TenYearCHD, positive="X1",mode="everything")
+
+gbmpredict1 <- predict(gbmodel,newdata = train2GB)
+
+caret::confusionMatrix(gbmpredict1,train2GB$TenYearCHD, positive="X1",mode="everything")
+
+#evalm(gbmodel)
+
+```
+
+#J48
+```{r}
+set.seed(108)
+sample2 <- createDataPartition(newdata2$TenYearCHD,p=0.7,list = FALSE)
+
+train2j48 <- newdata2[sample2, ]
+test2j48  <- newdata2[-sample2,]
+#train2j48 <- train2C5[,-2]
+#test2j48 <- test2C5[,-2]
+levels(train2j48$TenYearCHD) <- make.names(levels(train2j48$TenYearCHD))
+levels(test2j48$TenYearCHD) <- make.names(levels(test2j48$TenYearCHD))
+
+repeats <- 3
+numbers <- 10
+tunel <- 10
+
+x <- trainControl(method = "repeatedcv",
+                 number = numbers,
+                 repeats = repeats,
+                 classProbs = TRUE,
+                 summaryFunction = twoClassSummary,
+                 sampling = "smote",
+                 verboseIter = FALSE,
+                 savePredictions = TRUE
+                 )
+starttime <- Sys.time()
+#mtry <- sqrt(ncol(newdata2))
+#tgrid <- expand.grid(maxdepth = 25)
+J48model <- caret::train(TenYearCHD~., data = train2j48, method = "J48",
+               #
+               trControl = x,
+               metric = "ROC",
+               tuneLength = tunel)
+               #tunegrid=tgrid)
+               #ntree=5)
+# Summary of model
+
+J48predict <- predict(J48model,newdata = test2j48)
+
+endtime <- Sys.time()
+
+print(endtime-starttime)
+
+#plot(c5model, print.thres = 0.5, type="S")
+
+imp <- caret::varImp(J48model,useModel=TRUE,scale=FALSE)
+
+plot(imp)
+
+plot(J48model$finalModel)
+# plot(c5model$finalModel)
+# text(c5model$finalModel)
+
+
+#fancyRpartPlot(J48model$finalModel,palettes=c("Blues","Oranges"))
+
+
+caret::confusionMatrix(J48predict,test2j48$TenYearCHD, positive="X1",mode="everything")
+
+
+J48predict1 <- predict(J48model,newdata = train2j48)
+
+caret::confusionMatrix(J48predict1,train2j48$TenYearCHD, positive="X1",mode="everything")
+
+J485res <- evalm(J48model)
+
+```
